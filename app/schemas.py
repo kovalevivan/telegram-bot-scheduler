@@ -43,6 +43,13 @@ class CreateOnceSchedule(ScheduleBase):
     type: Literal["once"] = "once"
     run_at: datetime = Field(description="ISO datetime with timezone, e.g. 2025-12-17T10:30:00+03:00")
 
+    @field_validator("run_at")
+    @classmethod
+    def _validate_run_at_tzaware(cls, v: datetime) -> datetime:
+        if v.tzinfo is None or v.utcoffset() is None:
+            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
+        return v
+
 
 CreateSchedule = CreateDailySchedule | CreateIntervalSchedule | CreateOnceSchedule
 
@@ -66,6 +73,15 @@ class UpdateSchedule(BaseModel):
         hhi, mmi = int(hh), int(mm)
         if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
             raise ValueError("time_hhmm must be a valid time")
+        return v
+
+    @field_validator("run_at")
+    @classmethod
+    def _validate_run_at_optional_tzaware(cls, v: datetime | None) -> datetime | None:
+        if v is None:
+            return v
+        if v.tzinfo is None or v.utcoffset() is None:
+            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
         return v
 
 
