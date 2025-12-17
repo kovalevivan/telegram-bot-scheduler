@@ -18,6 +18,7 @@
 1) Создайте окружение и поставьте зависимости:
 
 ```bash
+python --version  # рекомендуется 3.12 или 3.13
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
