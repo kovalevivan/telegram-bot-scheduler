@@ -105,12 +105,13 @@ async def create_interval(payload: CreateIntervalSchedule):
 @app.post("/schedules/once", response_model=ScheduleOut)
 async def create_once(payload: CreateOnceSchedule):
     now = datetime.now(tz=UTC)
+    run_at_utc = payload.run_at.astimezone(UTC)
     s = Schedule(
         token=payload.token,
         user_id=payload.user_id,
         scenario_id=payload.scenario_id,
         type=ScheduleType.once,
-        run_at=payload.run_at,
+        run_at=run_at_utc,
         active=True,
     )
     s.next_run_at = compute_next_run_at(s, now=now)
@@ -157,7 +158,7 @@ async def update_schedule(schedule_id: uuid.UUID, payload: UpdateSchedule):
         if payload.every_minutes is not None:
             s.every_minutes = payload.every_minutes
         if payload.run_at is not None:
-            s.run_at = payload.run_at
+            s.run_at = payload.run_at.astimezone(UTC)
 
         # basic type safety
         if s.type == ScheduleType.daily and not s.time_hhmm:
