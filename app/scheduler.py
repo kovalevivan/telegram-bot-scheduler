@@ -108,7 +108,10 @@ class SchedulerWorker:
             due = await self._lock_and_fetch_due(session)
 
         if not due:
+            logger.debug("no due schedules")
             return
+
+        logger.info("due schedules claimed: %s", len(due))
 
         async def run_one(d: DueSchedule) -> None:
             async with self._sem:
@@ -170,6 +173,15 @@ class SchedulerWorker:
                 err = f"HTTP {resp.status_code}: {resp.text[:1000]}"
         except Exception as e:
             err = repr(e)
+        finally:
+            logger.info(
+                "executed schedule id=%s user_id=%s scenario_id=%s status=%s error=%s",
+                d.id,
+                d.user_id,
+                d.scenario_id,
+                status_code,
+                "none" if not err else err[:200],
+            )
 
         from app.db import db_session
 
