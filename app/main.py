@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -52,14 +51,6 @@ async def health():
 
 
 def _to_out(s: Schedule) -> ScheduleOut:
-    times_hhmm = None
-    if s.times_hhmm:
-        try:
-            parsed = json.loads(s.times_hhmm)
-            if isinstance(parsed, list):
-                times_hhmm = [str(x) for x in parsed]
-        except Exception:
-            times_hhmm = None
     return ScheduleOut.model_validate(
         {
             "id": s.id,
@@ -68,7 +59,6 @@ def _to_out(s: Schedule) -> ScheduleOut:
             "scenario_id": s.scenario_id,
             "type": s.type.value,
             "time_hhmm": s.time_hhmm,
-            "times_hhmm": times_hhmm,
             "timezone": s.timezone,
             "every_minutes": s.every_minutes,
             "run_at": s.run_at,
@@ -86,14 +76,6 @@ def _to_out(s: Schedule) -> ScheduleOut:
 @app.post("/schedules/daily", response_model=ScheduleOut)
 async def create_daily(payload: CreateDailySchedule):
     now = datetime.now(tz=UTC)
-    # Normalize: allow single time_hhmm or multiple times_hhmm
-    times = payload.times_hhmm
-    if not times and payload.time_hhmm:
-        times = [payload.time_hhmm]
-    if not times:
-        raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm or times_hhmm")
-    times_json = json.dumps(times)
-
     async with db_session() as session:
         # Enforce "one daily schedule per token+user_id" (bot + client).
         # If exists -> update it; if multiple exist -> keep the newest, delete the rest.
@@ -112,8 +94,7 @@ async def create_daily(payload: CreateDailySchedule):
         if existing:
             s = existing[0]
             s.scenario_id = payload.scenario_id
-            s.time_hhmm = times[0] if times else None
-            s.times_hhmm = times_json
+            s.time_hhmm = payload.time_hhmm
             s.timezone = payload.timezone
             s.active = True
             s.locked_until = None
@@ -133,8 +114,7 @@ async def create_daily(payload: CreateDailySchedule):
             user_id=payload.user_id,
             scenario_id=payload.scenario_id,
             type=ScheduleType.daily,
-            time_hhmm=times[0] if times else None,
-            times_hhmm=times_json,
+            time_hhmm=payload.time_hhmm,
             timezone=payload.timezone,
             active=True,
         )
@@ -217,13 +197,6 @@ async def update_schedule(schedule_id: uuid.UUID, payload: UpdateSchedule):
 
         if payload.time_hhmm is not None:
             s.time_hhmm = payload.time_hhmm
-            if s.type == ScheduleType.daily:
-                s.times_hhmm = json.dumps([payload.time_hhmm])
-        if payload.times_hhmm is not None:
-            if s.type != ScheduleType.daily:
-                raise HTTPException(status_code=400, detail="times_hhmm is only valid for daily schedules")
-            s.time_hhmm = payload.times_hhmm[0] if payload.times_hhmm else None
-            s.times_hhmm = json.dumps(payload.times_hhmm)
         if payload.timezone is not None:
             s.timezone = payload.timezone
         if payload.every_minutes is not None:
@@ -232,8 +205,8 @@ async def update_schedule(schedule_id: uuid.UUID, payload: UpdateSchedule):
             s.run_at = payload.run_at.astimezone(UTC)
 
         # basic type safety
-        if s.type == ScheduleType.daily and not (s.times_hhmm or s.time_hhmm):
-            raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm or times_hhmm")
+        if s.type == ScheduleType.daily and not s.time_hhmm:
+            raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm")
         if s.type == ScheduleType.interval and not s.every_minutes:
             raise HTTPException(status_code=400, detail="interval schedule requires every_minutes")
         if s.type == ScheduleType.once and not s.run_at:
@@ -276,13 +249,6 @@ async def update_schedule_by_key(payload: UpdateScheduleByKey):
 
         if payload.time_hhmm is not None:
             s.time_hhmm = payload.time_hhmm
-            if s.type == ScheduleType.daily:
-                s.times_hhmm = json.dumps([payload.time_hhmm])
-        if payload.times_hhmm is not None:
-            if s.type != ScheduleType.daily:
-                raise HTTPException(status_code=400, detail="times_hhmm is only valid for daily schedules")
-            s.time_hhmm = payload.times_hhmm[0] if payload.times_hhmm else None
-            s.times_hhmm = json.dumps(payload.times_hhmm)
         if payload.timezone is not None:
             s.timezone = payload.timezone
         if payload.every_minutes is not None:
@@ -291,8 +257,8 @@ async def update_schedule_by_key(payload: UpdateScheduleByKey):
             s.run_at = payload.run_at.astimezone(UTC)
 
         # basic type safety
-        if s.type == ScheduleType.daily and not (s.times_hhmm or s.time_hhmm):
-            raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm or times_hhmm")
+        if s.type == ScheduleType.daily and not s.time_hhmm:
+            raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm")
         if s.type == ScheduleType.interval and not s.every_minutes:
             raise HTTPException(status_code=400, detail="interval schedule requires every_minutes")
         if s.type == ScheduleType.once and not s.run_at:

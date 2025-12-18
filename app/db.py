@@ -39,25 +39,5 @@ async def db_session() -> AsyncSession:
 
 
 async def ensure_schema_migrations() -> None:
-    """
-    Minimal runtime migrations (no Alembic).
-    Adds columns if they are missing, so upgrades work on existing DB.
-    """
-    async with engine.begin() as conn:
-        driver = engine.url.get_backend_name()
-
-        if driver.startswith("sqlite"):
-            cols = (await conn.exec_driver_sql("PRAGMA table_info(schedules)")).all()
-            existing = {row[1] for row in cols}  # name at index 1
-            if "times_hhmm" not in existing:
-                await conn.exec_driver_sql("ALTER TABLE schedules ADD COLUMN times_hhmm TEXT")
-        else:
-            # Postgres / others
-            cols = (
-                await conn.exec_driver_sql(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name='schedules'"
-                )
-            ).all()
-            existing = {row[0] for row in cols}
-            if "times_hhmm" not in existing:
-                await conn.exec_driver_sql("ALTER TABLE schedules ADD COLUMN times_hhmm TEXT")
+    """Reserved for future migrations."""
+    return

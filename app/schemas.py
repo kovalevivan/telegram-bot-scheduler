@@ -19,16 +19,12 @@ class ScheduleBase(BaseModel):
 
 class CreateDailySchedule(ScheduleBase):
     type: Literal["daily"] = "daily"
-    # Backward-compatible: either send time_hhmm (single) or times_hhmm (multiple)
-    time_hhmm: str | None = Field(default=None, description="HH:MM, 24h format (single run, legacy)")
-    times_hhmm: list[str] | None = Field(default=None, description='Multiple runs per day: ["HH:MM", ...]')
+    time_hhmm: str = Field(description="HH:MM, 24h format")
     timezone: str = Field(default="UTC", description="IANA timezone, e.g. Europe/Moscow")
 
     @field_validator("time_hhmm")
     @classmethod
-    def _validate_hhmm(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
+    def _validate_hhmm(cls, v: str) -> str:
         if not _HHMM_RE.match(v):
             raise ValueError("time_hhmm must be HH:MM")
         hh, mm = v.split(":")
@@ -36,25 +32,6 @@ class CreateDailySchedule(ScheduleBase):
         if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
             raise ValueError("time_hhmm must be a valid time")
         return v
-
-    @field_validator("times_hhmm")
-    @classmethod
-    def _validate_times(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
-            return v
-        if not v:
-            raise ValueError("times_hhmm must not be empty")
-        norm: list[str] = []
-        for t in v:
-            if not _HHMM_RE.match(t):
-                raise ValueError("each times_hhmm entry must be HH:MM")
-            hh, mm = t.split(":")
-            hhi, mmi = int(hh), int(mm)
-            if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
-                raise ValueError("each times_hhmm entry must be a valid time")
-            norm.append(f"{hhi:02d}:{mmi:02d}")
-        # de-dup & sort
-        return sorted(set(norm))
 
 
 class CreateIntervalSchedule(ScheduleBase):
@@ -70,9 +47,7 @@ class CreateOnceSchedule(ScheduleBase):
     @classmethod
     def _validate_run_at_tzaware(cls, v: datetime) -> datetime:
         if v.tzinfo is None or v.utcoffset() is None:
-            raise ValueError(
-                "run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z"
-            )
+            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
         return v
 
 
@@ -83,7 +58,6 @@ class UpdateSchedule(BaseModel):
     # allow partial updates
     scenario_id: int | None = Field(default=None, ge=1)
     time_hhmm: str | None = None
-    times_hhmm: list[str] | None = None
     timezone: str | None = None
     every_minutes: int | None = Field(default=None, ge=1, le=60 * 24 * 365)
     run_at: datetime | None = None
@@ -102,33 +76,13 @@ class UpdateSchedule(BaseModel):
             raise ValueError("time_hhmm must be a valid time")
         return v
 
-    @field_validator("times_hhmm")
-    @classmethod
-    def _validate_times_optional(cls, v: list[str] | None) -> list[str] | None:
-        if v is None:
-            return v
-        if not v:
-            raise ValueError("times_hhmm must not be empty")
-        norm: list[str] = []
-        for t in v:
-            if not _HHMM_RE.match(t):
-                raise ValueError("each times_hhmm entry must be HH:MM")
-            hh, mm = t.split(":")
-            hhi, mmi = int(hh), int(mm)
-            if not (0 <= hhi <= 23 and 0 <= mmi <= 59):
-                raise ValueError("each times_hhmm entry must be a valid time")
-            norm.append(f"{hhi:02d}:{mmi:02d}")
-        return sorted(set(norm))
-
     @field_validator("run_at")
     @classmethod
     def _validate_run_at_optional_tzaware(cls, v: datetime | None) -> datetime | None:
         if v is None:
             return v
         if v.tzinfo is None or v.utcoffset() is None:
-            raise ValueError(
-                "run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z"
-            )
+            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
         return v
 
 
@@ -139,7 +93,6 @@ class ScheduleOut(BaseModel):
     scenario_id: int
     type: str
     time_hhmm: str | None
-    times_hhmm: list[str] | None
     timezone: str | None
     every_minutes: int | None
     run_at: datetime | None

@@ -36,8 +36,6 @@ class Schedule(Base):
     # daily
     time_hhmm: Mapped[str | None] = mapped_column(String(5), nullable=True)
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    # daily (multiple times per day) stored as JSON string: ["HH:MM", ...]
-    times_hhmm: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # interval
     every_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
