@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db import engine, db_session
 from app.models import Base, Schedule, ScheduleType
@@ -66,17 +66,49 @@ def _to_out(s: Schedule) -> ScheduleOut:
 @app.post("/schedules/daily", response_model=ScheduleOut)
 async def create_daily(payload: CreateDailySchedule):
     now = datetime.now(tz=UTC)
-    s = Schedule(
-        token=payload.token,
-        user_id=payload.user_id,
-        scenario_id=payload.scenario_id,
-        type=ScheduleType.daily,
-        time_hhmm=payload.time_hhmm,
-        timezone=payload.timezone,
-        active=True,
-    )
-    s.next_run_at = compute_next_run_at(s, now=now)
     async with db_session() as session:
+        # Enforce "one daily schedule per token+user_id" (bot + client).
+        # If exists -> update it; if multiple exist -> keep the newest, delete the rest.
+        existing = (
+            await session.execute(
+                select(Schedule)
+                .where(
+                    Schedule.type == ScheduleType.daily,
+                    Schedule.token == payload.token,
+                    Schedule.user_id == payload.user_id,
+                )
+                .order_by(Schedule.created_at.desc())
+            )
+        ).scalars().all()
+
+        if existing:
+            s = existing[0]
+            s.scenario_id = payload.scenario_id
+            s.time_hhmm = payload.time_hhmm
+            s.timezone = payload.timezone
+            s.active = True
+            s.locked_until = None
+            s.next_run_at = compute_next_run_at(s, now=now)
+
+            # cleanup duplicates if any
+            if len(existing) > 1:
+                dup_ids = [x.id for x in existing[1:]]
+                await session.execute(delete(Schedule).where(Schedule.id.in_(dup_ids)))
+
+            await session.commit()
+            await session.refresh(s)
+            return _to_out(s)
+
+        s = Schedule(
+            token=payload.token,
+            user_id=payload.user_id,
+            scenario_id=payload.scenario_id,
+            type=ScheduleType.daily,
+            time_hhmm=payload.time_hhmm,
+            timezone=payload.timezone,
+            active=True,
+        )
+        s.next_run_at = compute_next_run_at(s, now=now)
         session.add(s)
         await session.commit()
         await session.refresh(s)
