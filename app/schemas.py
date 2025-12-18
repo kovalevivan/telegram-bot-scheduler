@@ -47,7 +47,9 @@ class CreateOnceSchedule(ScheduleBase):
     @classmethod
     def _validate_run_at_tzaware(cls, v: datetime) -> datetime:
         if v.tzinfo is None or v.utcoffset() is None:
-            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
+            raise ValueError(
+                "run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z"
+            )
         return v
 
 
@@ -82,7 +84,9 @@ class UpdateSchedule(BaseModel):
         if v is None:
             return v
         if v.tzinfo is None or v.utcoffset() is None:
-            raise ValueError("run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z")
+            raise ValueError(
+                "run_at must include timezone offset, e.g. 2025-12-17T10:30:00+03:00 or ...Z"
+            )
         return v
 
 
@@ -103,3 +107,28 @@ class ScheduleOut(BaseModel):
     last_error: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ScheduleKey(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    user_id: int = Field(ge=1)
+    type: Literal["daily", "interval", "once"] = "daily"
+
+
+class UpdateScheduleByKey(ScheduleKey, UpdateSchedule):
+    """
+    Update schedule identified by (token, user_id, type).
+    Fields from UpdateSchedule are optional (patch semantics).
+    """
+
+
+class DeleteSchedulesByKey(ScheduleKey):
+    """
+    Delete schedules by (token, user_id, type).
+    If type is omitted by client, send type="daily" or use /schedules/by_key/delete_all.
+    """
+
+
+class DeleteAllSchedulesByTokenUser(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    user_id: int = Field(ge=1)
