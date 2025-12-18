@@ -180,6 +180,61 @@ async def update_schedule(schedule_id: uuid.UUID, payload: UpdateSchedule):
         if not s:
             raise HTTPException(status_code=404, detail="schedule not found")
 
+        if payload.scenario_id is not None:
+            s.scenario_id = payload.scenario_id
+        if payload.active is not None:
+            s.active = payload.active
+
+        if payload.time_hhmm is not None:
+            s.time_hhmm = payload.time_hhmm
+        if payload.timezone is not None:
+            s.timezone = payload.timezone
+        if payload.every_minutes is not None:
+            s.every_minutes = payload.every_minutes
+        if payload.run_at is not None:
+            s.run_at = payload.run_at.astimezone(UTC)
+
+        # basic type safety
+        if s.type == ScheduleType.daily and not s.time_hhmm:
+            raise HTTPException(status_code=400, detail="daily schedule requires time_hhmm")
+        if s.type == ScheduleType.interval and not s.every_minutes:
+            raise HTTPException(status_code=400, detail="interval schedule requires every_minutes")
+        if s.type == ScheduleType.once and not s.run_at:
+            raise HTTPException(status_code=400, detail="once schedule requires run_at")
+
+        s.next_run_at = compute_next_run_at(s, now=datetime.now(tz=UTC))
+        s.locked_until = None
+
+        await session.commit()
+        await session.refresh(s)
+        return _to_out(s)
+
+
+@app.patch("/schedules/by_key", response_model=ScheduleOut)
+async def update_schedule_by_key(
+    payload: UpdateSchedule,
+    token: str = Query(..., min_length=1),
+    user_id: int = Query(..., ge=1),
+    type: ScheduleType = Query(default=ScheduleType.daily),
+):
+    """
+    Update a schedule using (token, user_id, type). Useful when client doesn't store UUID.
+    For daily schedules this matches the "one per token+user_id" constraint.
+    """
+    async with db_session() as session:
+        s = (
+            await session.execute(
+                select(Schedule)
+                .where(Schedule.token == token, Schedule.user_id == user_id, Schedule.type == type)
+                .order_by(Schedule.created_at.desc())
+            )
+        ).scalars().first()
+
+        if not s:
+            raise HTTPException(status_code=404, detail="schedule not found")
+
+        if payload.scenario_id is not None:
+            s.scenario_id = payload.scenario_id
         if payload.active is not None:
             s.active = payload.active
 
@@ -217,3 +272,23 @@ async def delete_schedule(schedule_id: uuid.UUID):
         await session.delete(s)
         await session.commit()
     return {"deleted": True, "id": str(schedule_id)}
+
+
+@app.delete("/schedules/by_key")
+async def delete_schedules_by_key(
+    token: str = Query(..., min_length=1),
+    user_id: int = Query(..., ge=1),
+    type: ScheduleType | None = Query(default=None),
+):
+    """
+    Delete schedules by (token, user_id). If type is omitted, deletes ALL schedules
+    for that bot+client pair (daily/interval/once).
+    """
+    async with db_session() as session:
+        stmt = delete(Schedule).where(Schedule.token == token, Schedule.user_id == user_id)
+        if type is not None:
+            stmt = stmt.where(Schedule.type == type)
+        res = await session.execute(stmt)
+        await session.commit()
+        # SQLite may return 0 for rowcount depending on driver; still return best-effort.
+        return {"deleted": True, "deleted_count": int(res.rowcount or 0)}

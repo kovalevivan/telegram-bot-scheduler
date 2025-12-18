@@ -56,6 +56,7 @@ CreateSchedule = CreateDailySchedule | CreateIntervalSchedule | CreateOnceSchedu
 
 class UpdateSchedule(BaseModel):
     # allow partial updates
+    scenario_id: int | None = Field(default=None, ge=1)
     time_hhmm: str | None = None
     timezone: str | None = None
     every_minutes: int | None = Field(default=None, ge=1, le=60 * 24 * 365)
