@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -39,15 +40,39 @@ def compute_next_run_at(s: Schedule, *, now: datetime) -> datetime | None:
         return nxt
 
     if s.type == ScheduleType.daily:
-        if not s.time_hhmm:
+        times: list[str] = []
+        if s.times_hhmm:
+            try:
+                parsed = json.loads(s.times_hhmm)
+                if isinstance(parsed, list):
+                    times = [str(x) for x in parsed]
+            except Exception:
+                times = []
+        if not times and s.time_hhmm:
+            times = [s.time_hhmm]
+        if not times:
             return None
         tz = ZoneInfo(s.timezone or "UTC")
-        hh, mm = s.time_hhmm.split(":")
-        target_local = time(hour=int(hh), minute=int(mm))
         local_now = now.astimezone(tz)
-        candidate = datetime.combine(local_now.date(), target_local, tzinfo=tz)
-        if candidate <= local_now:
-            candidate = candidate + timedelta(days=1)
+        parsed_times: list[time] = []
+        for t in times:
+            try:
+                hh, mm = str(t).split(":")
+                parsed_times.append(time(hour=int(hh), minute=int(mm)))
+            except Exception:
+                continue
+        if not parsed_times:
+            return None
+        parsed_times = sorted(parsed_times)
+
+        # next time today
+        for tt in parsed_times:
+            candidate = datetime.combine(local_now.date(), tt, tzinfo=tz)
+            if candidate > local_now:
+                return candidate.astimezone(UTC)
+
+        # otherwise tomorrow earliest
+        candidate = datetime.combine(local_now.date() + timedelta(days=1), parsed_times[0], tzinfo=tz)
         return candidate.astimezone(UTC)
 
     return None
