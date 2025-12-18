@@ -10,7 +10,16 @@ from sqlalchemy import delete, select
 
 from app.db import engine, db_session
 from app.models import Base, Schedule, ScheduleType
-from app.schemas import CreateDailySchedule, CreateIntervalSchedule, CreateOnceSchedule, ScheduleOut, UpdateSchedule
+from app.schemas import (
+    CreateDailySchedule,
+    CreateIntervalSchedule,
+    CreateOnceSchedule,
+    DeleteAllSchedulesByTokenUser,
+    DeleteSchedulesByKey,
+    ScheduleOut,
+    UpdateSchedule,
+    UpdateScheduleByKey,
+)
 from app.scheduler import SchedulerWorker, compute_next_run_at
 
 logging.basicConfig(level=logging.INFO)
@@ -211,12 +220,7 @@ async def update_schedule(schedule_id: uuid.UUID, payload: UpdateSchedule):
 
 
 @app.patch("/schedules/by_key", response_model=ScheduleOut)
-async def update_schedule_by_key(
-    payload: UpdateSchedule,
-    token: str = Query(..., min_length=1),
-    user_id: int = Query(..., ge=1),
-    type: ScheduleType = Query(default=ScheduleType.daily),
-):
+async def update_schedule_by_key(payload: UpdateScheduleByKey):
     """
     Update a schedule using (token, user_id, type). Useful when client doesn't store UUID.
     For daily schedules this matches the "one per token+user_id" constraint.
@@ -225,7 +229,11 @@ async def update_schedule_by_key(
         s = (
             await session.execute(
                 select(Schedule)
-                .where(Schedule.token == token, Schedule.user_id == user_id, Schedule.type == type)
+                .where(
+                    Schedule.token == payload.token,
+                    Schedule.user_id == payload.user_id,
+                    Schedule.type == ScheduleType(payload.type),
+                )
                 .order_by(Schedule.created_at.desc())
             )
         ).scalars().first()
@@ -274,21 +282,25 @@ async def delete_schedule(schedule_id: uuid.UUID):
     return {"deleted": True, "id": str(schedule_id)}
 
 
-@app.delete("/schedules/by_key")
-async def delete_schedules_by_key(
-    token: str = Query(..., min_length=1),
-    user_id: int = Query(..., ge=1),
-    type: ScheduleType | None = Query(default=None),
-):
-    """
-    Delete schedules by (token, user_id). If type is omitted, deletes ALL schedules
-    for that bot+client pair (daily/interval/once).
-    """
+@app.post("/schedules/by_key/delete")
+async def delete_schedule_by_key(payload: DeleteSchedulesByKey):
+    """Delete ONE schedule type by (token, user_id, type) - parameters in body."""
     async with db_session() as session:
-        stmt = delete(Schedule).where(Schedule.token == token, Schedule.user_id == user_id)
-        if type is not None:
-            stmt = stmt.where(Schedule.type == type)
+        stmt = delete(Schedule).where(
+            Schedule.token == payload.token,
+            Schedule.user_id == payload.user_id,
+            Schedule.type == ScheduleType(payload.type),
+        )
         res = await session.execute(stmt)
         await session.commit()
-        # SQLite may return 0 for rowcount depending on driver; still return best-effort.
+        return {"deleted": True, "deleted_count": int(res.rowcount or 0)}
+
+
+@app.post("/schedules/by_key/delete_all")
+async def delete_all_schedules_by_token_user(payload: DeleteAllSchedulesByTokenUser):
+    """Delete ALL schedules by (token, user_id) - parameters in body."""
+    async with db_session() as session:
+        stmt = delete(Schedule).where(Schedule.token == payload.token, Schedule.user_id == payload.user_id)
+        res = await session.execute(stmt)
+        await session.commit()
         return {"deleted": True, "deleted_count": int(res.rowcount or 0)}
